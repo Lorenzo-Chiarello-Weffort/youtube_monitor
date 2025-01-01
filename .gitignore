@@ -1,3 +1,7 @@
+# Youtube API secret
+client_secret.json
+token.json
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

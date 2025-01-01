@@ -1,7 +1,6 @@
 # Youtube API secret
 client_secret.json
 token.json
-playlist_data.db
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -6,15 +6,16 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 import matplotlib.pyplot as plt
-from flask import Flask, send_file, jsonify
+from flask import Flask, send_file, jsonify, redirect, url_for
 import io
+import logging
 
 # Caminho para o arquivo de autenticação OAuth2
 CLIENT_SECRET_FILE = "client_secret.json"
 SCOPES = ["https://www.googleapis.com/auth/youtube.readonly"]
 
 # Arquivo do token
-TOKEN_FILE = "/etc/secrets/token.json"
+TOKEN_FILE_HOST = "/etc/secrets/token.json"
 TOKEN_FILE_LOCAL = "token.json"
 
 # Banco de dados SQLite
@@ -26,30 +27,38 @@ PLAYLIST_ID = "PLEFWxoBc4reTSR7_7lEXQKKjDFZc6xmH8"
 # Inicializar Flask
 app = Flask(__name__)
 
+# Configurar o logger
+data_buffer = io.StringIO()
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s', handlers=[
+    logging.StreamHandler(data_buffer),
+    logging.StreamHandler()
+])
+logger = logging.getLogger()
+
 # Checar se tem o arquivo client_secret
 def check_secret():
-    print("\nChecando Token...")
+    logger.info("Checando Token...")
     time.sleep(2)
-    if os.path.exists(TOKEN_FILE):
-        print("Token encontrado")
-        return True
+    if os.path.exists(TOKEN_FILE_HOST):
+        logger.info("Token encontrado")
+        return "token_file_host_found"
     
-    print("\nChecando Token localmente...")
+    logger.info("Checando Token localmente...")
     if os.path.exists(TOKEN_FILE_LOCAL):
-        print("Token local encontrado")
-        return True
+        logger.info("Token local encontrado")
+        return "token_file_local_found"
     
-    print("Token não encontrado, checando Client Secret...")
+    logger.info("Token não encontrado, checando Client Secret...")
     if os.path.exists(CLIENT_SECRET_FILE):
-        print("Client Secret encontrado")
-        return True
+        logger.info("Client Secret encontrado")
+        return "client_file_found"
     
-    print("Client Secret não encontrado")
-    return False
+    logger.info("Client Secret não encontrado")
+    return "no_file_found"
 
 # Inicializar banco de dados
 def init_db():
-    print("\nInicializando banco de dados SQLite...")
+    logger.info("Inicializando banco de dados SQLite...")
     time.sleep(2)
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -61,22 +70,22 @@ def init_db():
     """)
     conn.commit()
     conn.close()
-    print("Banco de dados inicializado.")
+    logger.info("Banco de dados inicializado.")
 
 # Salvar dados no banco
 def save_data(date, video_count):
-    print(f"\nSalvando dados: {date} - {video_count} vídeos...")
+    logger.info(f"Salvando dados: {date} - {video_count} vídeos...")
     time.sleep(2)
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("INSERT OR IGNORE INTO playlist_data (date, video_count) VALUES (?, ?)", (date, video_count))
     conn.commit()
     conn.close()
-    print("Dados salvos com sucesso.")
+    logger.info("Dados salvos com sucesso.")
 
 # Checar e salvar dados
 def check_and_save(youtube):
-    print("\nExecutando tarefa agendada para verificar e salvar dados...")
+    logger.info("Executando tarefa agendada para verificar e salvar dados...")
     time.sleep(2)
     today = datetime.date.today().isoformat()
     conn = sqlite3.connect(DB_FILE)
@@ -85,45 +94,45 @@ def check_and_save(youtube):
     if not cursor.fetchone():  # Se não há dados hoje
         video_count = get_playlist_video_count(youtube)
         save_data(today, video_count)
-        print(f"Dados salvos para {today}: {video_count} vídeos.")
+        logger.info(f"Dados salvos para {today}: {video_count} vídeos.")
     else:
-        print(f"Dados para {today} já existem no banco.")
+        logger.info(f"Dados para {today} já existem no banco.")
     conn.close()
 
 # Autenticação e inicialização da API
-def authenticate_youtube():
-    print("\nAutenticando conta no YouTube API...")
+def authenticate_youtube(TOKEN_FILE):
+    logger.info("Autenticando conta no YouTube API...")
     time.sleep(2)
     credentials = None
     if os.path.exists(TOKEN_FILE):
-        print(f'Credenciais encontradas em {TOKEN_FILE}.')
+        logger.info(f'Credenciais encontradas em {TOKEN_FILE}.')
         credentials = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
     else:
-        print("Credenciais não encontradas. Executando fluxo de autenticação...")
+        logger.info("Credenciais não encontradas. Executando fluxo de autenticação...")
         flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
         credentials = flow.run_local_server(port=0)
         with open(TOKEN_FILE, "w") as token_json:
             token_json.write(credentials.to_json())
         time.sleep(5)
-    print("Autenticação concluída.")
+    logger.info("Autenticação concluída.")
     return build("youtube", "v3", credentials=credentials)
 
 # Obter a quantidade de vídeos da playlist
 def get_playlist_video_count(youtube):
-    print(f"Obtendo quantidade de vídeos da playlist '{PLAYLIST_ID}'...")
+    logger.info(f"Obtendo quantidade de vídeos da playlist '{PLAYLIST_ID}'...")
     request = youtube.playlists().list(part="contentDetails", id=PLAYLIST_ID)
     response = request.execute()
     if response["items"]:
         video_count = response["items"][0]["contentDetails"]["itemCount"]
-        print(f"Playlist contém {video_count} vídeos.")
+        logger.info(f"Playlist contém {video_count} vídeos.")
         return video_count
-    print("Nenhuma playlist encontrada.")
+    logger.info("Nenhuma playlist encontrada.")
     return 0
 
 # Rota para gerar o gráfico
 @app.route("/")
 def generate_graph():
-    print("Gerando gráfico para exibição...")
+    logger.info("Gerando gráfico para exibição...")
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("SELECT date, video_count FROM playlist_data ORDER BY date")
@@ -145,39 +154,55 @@ def generate_graph():
         plt.savefig(buf, format="png")
         buf.seek(0)
         plt.close()
-        print("Gráfico gerado com sucesso.")
+        logger.info("Gráfico gerado com sucesso.")
         return send_file(buf, mimetype="image/png")
     else:
-        print("Nenhum dado disponível para gerar gráfico.")
+        logger.info("Nenhum dado disponível para gerar gráfico.")
         return jsonify({"message": "No data to display."})
 
+@app.route("/log")
+def show_logs():
+    logger.info("Exibindo logs...")
+    data_buffer.seek(0)
+    logs = data_buffer.read()
+    return f"<pre>{logs}</pre>"
+
+@app.route("/no_file_found")
+def no_file_found():
+    return "<h1>Arquivo de autenticação não encontrado</h1>"
+    
 def main():
 
-    print("\n\n\n\n\nIniciando aplicativo...")
+    logger.info("Iniciando aplicativo...")
 
     time.sleep(2)
     client_secret = check_secret()
-    if not client_secret: return
+    if client_secret == "token_file_host_found":
+        TOKEN_FILE = TOKEN_FILE_HOST
+    elif client_secret == "token_file_local_found":
+        TOKEN_FILE = TOKEN_FILE_LOCAL
+    elif client_secret == "no_file_found":
+        return redirect(url_for("no_file_found"))
     
     time.sleep(2)
     init_db()
 
     time.sleep(5)
-    youtube = authenticate_youtube()
+    youtube = authenticate_youtube(TOKEN_FILE)
 
     time.sleep(5)
-    print("\nIniciando servidor Flask em uma thread separada...")
+    logger.info("Iniciando servidor Flask em uma thread separada...")
     time.sleep(2)
     from threading import Thread
     flask_thread = Thread(target=lambda: app.run(port=5000, debug=False, use_reloader=False))
     flask_thread.start()
 
     time.sleep(5)
-    print("\nExecutando o agendador de tarefas...")
+    logger.info("Executando o agendador de tarefas...")
     time.sleep(2)
     while True:
         check_and_save(youtube)
         time.sleep(3600)
 
 if __name__ == "__main__":
-    main()
+    app.run()

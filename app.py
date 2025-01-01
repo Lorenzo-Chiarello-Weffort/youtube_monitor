@@ -14,7 +14,8 @@ CLIENT_SECRET_FILE = "client_secret.json"
 SCOPES = ["https://www.googleapis.com/auth/youtube.readonly"]
 
 # Arquivo do token
-TOKEN_FILE = "token.json"
+TOKEN_FILE = "/etc/secrets/token.json"
+TOKEN_FILE_LOCAL = "token.json"
 
 # Banco de dados SQLite
 DB_FILE = "playlist_data.db"
@@ -31,6 +32,11 @@ def check_secret():
     time.sleep(2)
     if os.path.exists(TOKEN_FILE):
         print("Token encontrado")
+        return True
+    
+    print("\nChecando Token localmente...")
+    if os.path.exists(TOKEN_FILE_LOCAL):
+        print("Token local encontrado")
         return True
     
     print("Token não encontrado, checando Client Secret...")

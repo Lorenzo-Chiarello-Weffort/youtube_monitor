@@ -33,15 +33,18 @@ def check_secret_stored():
         with open(file_path, 'r') as file:
             data = json.load(file)
         print(data)
+        return True
     else:
         print(f'Arquivo em {file_path} não encontrado')
+    return False
 
 @app.route('/')
 def main_page():
-    client_secret = check_secret()
-    if client_secret:
-        return f'Client file: {CLIENT_SECRET_FILE}'
-    return 'Sem Client Secret'
+    check_secret()
+    check_secret_stored = check_secret_stored()
+    if check_secret_stored:
+        return 'Token encontrado'
+    return 'Sem token'
 
 if __name__ == '__main__':
     app.run()

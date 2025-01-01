@@ -41,8 +41,8 @@ def check_secret_stored():
 @app.route('/')
 def main_page():
     check_secret()
-    check_secret_stored = check_secret_stored()
-    if check_secret_stored:
+    check_stored = check_secret_stored()
+    if check_stored:
         return 'Token encontrado'
     return 'Sem token'
 

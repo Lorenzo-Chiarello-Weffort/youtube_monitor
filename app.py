@@ -1,12 +1,14 @@
+import matplotlib
+matplotlib.use("Agg")
+from matplotlib.figure import Figure
 import os
 import sqlite3
-import datetime
 import time
+from datetime import datetime, timedelta
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
-import matplotlib.pyplot as plt
-from flask import Flask, send_file, jsonify, redirect, url_for
+from flask import Flask, send_file, redirect, url_for
 import io
 import logging
 
@@ -24,7 +26,12 @@ DB_FILE = "playlist_data.db"
 # Configurações iniciais
 PLAYLIST_ID = "PLEFWxoBc4reTSR7_7lEXQKKjDFZc6xmH8"
 
+# Tempo de espera
+time_low = 0
+time_high = 3
+
 # Inicializar Flask
+INITIALIZED = False
 app = Flask(__name__)
 
 # Configurar o logger
@@ -38,7 +45,7 @@ logger = logging.getLogger()
 # Checar se tem o arquivo client_secret
 def check_secret():
     logger.info("Checando Token...")
-    time.sleep(2)
+    time.sleep(time_low)
     if os.path.exists(TOKEN_FILE_HOST):
         logger.info("Token encontrado")
         return "token_file_host_found"
@@ -59,7 +66,7 @@ def check_secret():
 # Inicializar banco de dados
 def init_db():
     logger.info("Inicializando banco de dados SQLite...")
-    time.sleep(2)
+    time.sleep(time_low)
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("""
@@ -75,7 +82,7 @@ def init_db():
 # Salvar dados no banco
 def save_data(date, video_count):
     logger.info(f"Salvando dados: {date} - {video_count} vídeos...")
-    time.sleep(2)
+    time.sleep(time_low)
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("INSERT OR IGNORE INTO playlist_data (date, video_count) VALUES (?, ?)", (date, video_count))
@@ -86,8 +93,8 @@ def save_data(date, video_count):
 # Checar e salvar dados
 def check_and_save(youtube):
     logger.info("Executando tarefa agendada para verificar e salvar dados...")
-    time.sleep(2)
-    today = datetime.date.today().isoformat()
+    time.sleep(time_low)
+    today = datetime.now().date().isoformat()
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM playlist_data WHERE date = ?", (today,))
@@ -102,7 +109,7 @@ def check_and_save(youtube):
 # Autenticação e inicialização da API
 def authenticate_youtube(TOKEN_FILE):
     logger.info("Autenticando conta no YouTube API...")
-    time.sleep(2)
+    time.sleep(time_low)
     credentials = None
     if os.path.exists(TOKEN_FILE):
         logger.info(f'Credenciais encontradas em {TOKEN_FILE}.')
@@ -113,7 +120,7 @@ def authenticate_youtube(TOKEN_FILE):
         credentials = flow.run_local_server(port=0)
         with open(TOKEN_FILE, "w") as token_json:
             token_json.write(credentials.to_json())
-        time.sleep(5)
+        time.sleep(time_high)
     logger.info("Autenticação concluída.")
     return build("youtube", "v3", credentials=credentials)
 
@@ -129,9 +136,63 @@ def get_playlist_video_count(youtube):
     logger.info("Nenhuma playlist encontrada.")
     return 0
 
-# Rota para gerar o gráfico
+def main():
+    logger.info("Iniciando aplicativo...")
+
+    global INITIALIZED
+    INITIALIZED = True
+
+    time.sleep(time_low)
+    client_secret = check_secret()
+    if client_secret == "token_file_host_found":
+        TOKEN_FILE = TOKEN_FILE_HOST
+    elif client_secret == "token_file_local_found":
+        TOKEN_FILE = TOKEN_FILE_LOCAL
+    elif client_secret == "no_file_found":
+        return redirect(url_for("no_file_found"))
+    
+    time.sleep(time_low)
+    init_db()
+
+    time.sleep(time_high)
+    youtube = authenticate_youtube(TOKEN_FILE)
+
+    time.sleep(time_high)
+    logger.info("Executando o agendador de tarefas em uma thread separada...")
+    time.sleep(time_low)
+    from threading import Thread
+    scheduler_thread = Thread(target=lambda: run_scheduler(youtube))
+    scheduler_thread.start()
+
+def run_scheduler(youtube):
+    last_run_date = None
+
+    while True:
+        current_date = datetime.now().date()
+
+        if last_run_date != current_date:
+            check_and_save(youtube)
+            last_run_date = current_date
+
+        # Calcula o tempo até a meia-noite do próximo dia
+        now = datetime.now()
+        next_day = datetime.combine(current_date + timedelta(days=1), datetime.min.time())
+        seconds_until_next_day = (next_day - now).total_seconds()
+
+        logger.warning("Segundos para executar novamente:")
+        logger.warning(seconds_until_next_day)
+        time.sleep(seconds_until_next_day)
+
+# Rotas
 @app.route("/")
-def generate_graph():
+def initialize():
+    global INITIALIZED
+    if not INITIALIZED:
+        main()
+    return redirect(url_for("graph"))
+
+@app.route("/graph")
+def graph():
     logger.info("Gerando gráfico para exibição...")
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -141,28 +202,26 @@ def generate_graph():
     
     if data:
         dates, counts = zip(*data)
-        plt.figure(figsize=(10, 6))
-        plt.plot(dates, counts, marker='o')
-        plt.title("YouTube Playlist Video Count Over Time")
-        plt.xlabel("Date")
-        plt.ylabel("Video Count")
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        
-        # Salvar gráfico em um buffer e enviar como resposta
+
+        fig = Figure(figsize=(10, 6))
+        ax = fig.add_subplot(1, 1, 1)
+        ax.plot(dates, counts, marker='o')
+        ax.set_title("YouTube Playlist Video Count Over Time")
+        ax.set_xlabel("Date")
+        ax.set_ylabel("Video Count")
+        ax.tick_params(axis='x', rotation=45)
         buf = io.BytesIO()
-        plt.savefig(buf, format="png")
+        fig.savefig(buf, format="png")
         buf.seek(0)
-        plt.close()
+
         logger.info("Gráfico gerado com sucesso.")
         return send_file(buf, mimetype="image/png")
     else:
         logger.info("Nenhum dado disponível para gerar gráfico.")
-        return jsonify({"message": "No data to display."})
+        return "<h1>Nenhum dado para mostrar</h1>"
 
-@app.route("/log")
-def show_logs():
-    logger.info("Exibindo logs...")
+@app.route("/logs")
+def logs():
     data_buffer.seek(0)
     logs = data_buffer.read()
     return f"<pre>{logs}</pre>"
@@ -171,38 +230,5 @@ def show_logs():
 def no_file_found():
     return "<h1>Arquivo de autenticação não encontrado</h1>"
     
-def main():
-
-    logger.info("Iniciando aplicativo...")
-
-    time.sleep(2)
-    client_secret = check_secret()
-    if client_secret == "token_file_host_found":
-        TOKEN_FILE = TOKEN_FILE_HOST
-    elif client_secret == "token_file_local_found":
-        TOKEN_FILE = TOKEN_FILE_LOCAL
-    elif client_secret == "no_file_found":
-        return redirect(url_for("no_file_found"))
-    
-    time.sleep(2)
-    init_db()
-
-    time.sleep(5)
-    youtube = authenticate_youtube(TOKEN_FILE)
-
-    time.sleep(5)
-    logger.info("Iniciando servidor Flask em uma thread separada...")
-    time.sleep(2)
-    from threading import Thread
-    flask_thread = Thread(target=lambda: app.run(port=5000, debug=False, use_reloader=False))
-    flask_thread.start()
-
-    time.sleep(5)
-    logger.info("Executando o agendador de tarefas...")
-    time.sleep(2)
-    while True:
-        check_and_save(youtube)
-        time.sleep(3600)
-
 if __name__ == "__main__":
     app.run()

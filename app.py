@@ -28,7 +28,7 @@ PLAYLIST_ID = "PLEFWxoBc4reTSR7_7lEXQKKjDFZc6xmH8"
 
 # Tempo de espera
 time_low = 0
-time_high = 3
+time_high = 0
 
 # Inicializar Flask
 INITIALIZED = False
@@ -72,7 +72,8 @@ def init_db():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS playlist_data (
             date TEXT PRIMARY KEY,
-            video_count INTEGER
+            video_count INTEGER,
+            total_minutes INTEGER
         )
     """)
     conn.commit()
@@ -80,12 +81,12 @@ def init_db():
     logger.info("Banco de dados inicializado.")
 
 # Salvar dados no banco
-def save_data(date, video_count):
-    logger.info(f"Salvando dados: {date} - {video_count} vídeos...")
+def save_data(date, video_count, total_minutes):
+    logger.info(f"Salvando dados: {date} - {video_count} vídeos - {total_minutes} minutos...")
     time.sleep(time_low)
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute("INSERT OR IGNORE INTO playlist_data (date, video_count) VALUES (?, ?)", (date, video_count))
+    cursor.execute("INSERT OR IGNORE INTO playlist_data (date, video_count, total_minutes) VALUES (?, ?, ?)", (date, video_count, total_minutes))
     conn.commit()
     conn.close()
     logger.info("Dados salvos com sucesso.")
@@ -99,9 +100,9 @@ def check_and_save(youtube):
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM playlist_data WHERE date = ?", (today,))
     if not cursor.fetchone():  # Se não há dados hoje
-        video_count = get_playlist_video_count(youtube)
-        save_data(today, video_count)
-        logger.info(f"Dados salvos para {today}: {video_count} vídeos.")
+        video_count, total_minutes = get_playlist_video_count_and_duration(youtube)
+        save_data(today, video_count, total_minutes)
+        logger.info(f"Dados salvos para {today}: {video_count} vídeos, {total_minutes} minutos.")
     else:
         logger.info(f"Dados para {today} já existem no banco.")
     conn.close()
@@ -124,17 +125,39 @@ def authenticate_youtube(TOKEN_FILE):
     logger.info("Autenticação concluída.")
     return build("youtube", "v3", credentials=credentials)
 
-# Obter a quantidade de vídeos da playlist
-def get_playlist_video_count(youtube):
-    logger.info(f"Obtendo quantidade de vídeos da playlist '{PLAYLIST_ID}'...")
-    request = youtube.playlists().list(part="contentDetails", id=PLAYLIST_ID)
-    response = request.execute()
-    if response["items"]:
-        video_count = response["items"][0]["contentDetails"]["itemCount"]
-        logger.info(f"Playlist contém {video_count} vídeos.")
-        return video_count
-    logger.info("Nenhuma playlist encontrada.")
-    return 0
+# Obter a quantidade de vídeos e duração total da playlist
+def get_playlist_video_count_and_duration(youtube):
+    logger.info(f"Obtendo dados da playlist '{PLAYLIST_ID}'...")
+    request = youtube.playlistItems().list(
+        part="contentDetails", playlistId=PLAYLIST_ID, maxResults=50
+    )
+    video_ids = []
+    while request:
+        response = request.execute()
+        video_ids.extend(item["contentDetails"]["videoId"] for item in response["items"])
+        request = youtube.playlistItems().list_next(request, response)
+
+    video_count = len(video_ids)
+    total_minutes = 0
+
+    if video_ids:
+        for i in range(0, len(video_ids), 50):
+            video_request = youtube.videos().list(
+                part="contentDetails", id=','.join(video_ids[i:i + 50])
+            )
+            video_response = video_request.execute()
+            for video in video_response["items"]:
+                duration = video["contentDetails"]["duration"]
+                total_minutes += parse_duration_to_minutes(duration)
+
+    logger.info(f"Playlist contém {video_count} vídeos e {total_minutes} minutos no total.")
+    return video_count, total_minutes
+
+# Converter duração do formato ISO 8601 para minutos
+def parse_duration_to_minutes(duration):
+    import isodate
+    parsed_duration = isodate.parse_duration(duration)
+    return int(parsed_duration.total_seconds() // 60)
 
 def main():
     logger.info("Iniciando aplicativo...")
@@ -179,8 +202,7 @@ def run_scheduler(youtube):
         next_day = datetime.combine(current_date + timedelta(days=1), datetime.min.time())
         seconds_until_next_day = (next_day - now).total_seconds()
 
-        logger.warning("Segundos para executar novamente:")
-        logger.warning(seconds_until_next_day)
+        logger.info(f'Segundos para salvar novamente: {seconds_until_next_day}')
         time.sleep(seconds_until_next_day)
 
 # Rotas
@@ -196,20 +218,23 @@ def graph():
     logger.info("Gerando gráfico para exibição...")
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute("SELECT date, video_count FROM playlist_data ORDER BY date")
+    cursor.execute("SELECT date, video_count, total_minutes FROM playlist_data ORDER BY date")
     data = cursor.fetchall()
     conn.close()
     
     if data:
-        dates, counts = zip(*data)
+        dates, counts, durations = zip(*data)
 
-        fig = Figure(figsize=(10, 6))
+        fig = Figure(figsize=(15, 9))
         ax = fig.add_subplot(1, 1, 1)
-        ax.plot(dates, counts, marker='o')
-        ax.set_title("YouTube Playlist Video Count Over Time")
+        ax.plot(dates, counts, marker='o', label='Video Count')
+        ax.plot(dates, durations, marker='o', label='Total Minutes')
+        ax.set_title("YouTube Playlist Data Over Time")
         ax.set_xlabel("Date")
-        ax.set_ylabel("Video Count")
+        ax.set_ylabel("Count / Minutes")
         ax.tick_params(axis='x', rotation=45)
+        ax.legend()
+
         buf = io.BytesIO()
         fig.savefig(buf, format="png")
         buf.seek(0)

@@ -147,7 +147,7 @@ def generate_graph():
 
 def main():
 
-    print("Iniciando aplicativo...")
+    print("\n\n\n\n\nIniciando aplicativo...")
 
     time.sleep(2)
     client_secret = check_secret()

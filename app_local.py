@@ -2,18 +2,18 @@ import matplotlib
 matplotlib.use("Agg")
 from matplotlib.figure import Figure
 import os
+import sqlite3
 import time
 from datetime import datetime, timedelta
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
-from flask import Flask, send_file
+from flask import Flask, send_file, redirect, url_for
 import io
 import logging
 from threading import Thread
 import isodate
 import pytz
-from google.cloud import firestore
 
 # Configurações iniciais
 CLIENT_SECRET_FILE = "client_secret.json"
@@ -21,15 +21,14 @@ SCOPES = ["https://www.googleapis.com/auth/youtube.readonly"]
 
 TOKEN_FILE = "/etc/secrets/token.json"
 
+DB_FILE = "playlist_data.db"
+
 PLAYLIST_ID = "PLEFWxoBc4reTSR7_7lEXQKKjDFZc6xmH8"
 
 TIMEZONE = pytz.timezone("America/Sao_Paulo")
 
-CREDENTIALS_PATH = "/etc/secrets/firebase.json"
-
-firestore_client = firestore.Client.from_service_account_json(CREDENTIALS_PATH)
-
-wait_time = 3
+time_low = 0
+time_high = 0
 
 app = Flask(__name__)
 
@@ -40,47 +39,62 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s', hand
 ])
 logger = logging.getLogger()
 
-# Inicialização do Firestore
-def init_firestore():
-    logger.info("Conectando ao Firestore...")
-    db = firestore.Client()
-    logger.info("Conexão ao Firestore estabelecida.")
-    return db
+def init_db():
+    logger.info("Inicializando banco de dados SQLite...")
+    time.sleep(time_low)
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS playlist_data (
+            date TEXT PRIMARY KEY,
+            video_count INTEGER,
+            total_minutes INTEGER
+        )
+    """)
+    conn.commit()
+    conn.close()
+    logger.info("Banco de dados inicializado.")
 
-def save_data(db, date, video_count, total_minutes):
+def save_data(date, video_count, total_minutes):
     logger.info(f"Salvando dados: {date} - {video_count} vídeos - {total_minutes} minutos...")
-    doc_ref = db.collection("playlist_data").document(date)
-    doc_ref.set({
-        "video_count": video_count,
-        "total_minutes": total_minutes
-    }, merge=True)
+    time.sleep(time_low)
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR IGNORE INTO playlist_data (date, video_count, total_minutes) VALUES (?, ?, ?)", (date, video_count, total_minutes))
+    conn.commit()
+    conn.close()
     logger.info("Dados salvos com sucesso.")
 
-def check_and_save(db, youtube):
+def check_and_save(youtube):
     logger.info("Executando tarefa agendada para verificar e salvar dados...")
+    time.sleep(time_low)
     today = datetime.now(TIMEZONE).date().isoformat()
-    doc_ref = db.collection("playlist_data").document(today)
-    doc = doc_ref.get()
-    if not doc.exists:  # Se não há dados hoje
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM playlist_data WHERE date = ?", (today,))
+    if not cursor.fetchone():  # Se não há dados hoje
         video_count, total_minutes = get_playlist_video_count_and_duration(youtube)
-        save_data(db, today, video_count, total_minutes)
+        save_data(today, video_count, total_minutes)
         logger.info(f"Dados salvos para {today}: {video_count} vídeos, {total_minutes} minutos.")
     else:
-        logger.info(f"Dados para {today} já existem no Firestore.")
+        logger.info(f"Dados para {today} já existem no banco.")
+    conn.close()
 
 def authenticate_youtube(TOKEN_FILE):
     logger.info("Autenticando conta no YouTube API...")
+    time.sleep(time_low)
     credentials = None
     if os.path.exists(TOKEN_FILE):
         logger.info(f'Credenciais encontradas em {TOKEN_FILE}.')
         credentials = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
+    
     else:
         logger.info("Credenciais não encontradas. Executando fluxo de autenticação...")
         flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
         credentials = flow.run_local_server(port=0)
         with open(TOKEN_FILE, "w") as token_json:
             token_json.write(credentials.to_json())
-        time.sleep(wait_time)
+        time.sleep(time_high)
 
     logger.info("Autenticação concluída.")
     return build("youtube", "v3", credentials=credentials)
@@ -116,33 +130,34 @@ def parse_duration_to_minutes(duration):
     parsed_duration = isodate.parse_duration(duration)
     return int(parsed_duration.total_seconds() // 60)
 
-def configure():
-    logger.info("Iniciando configuração do aplicativo...")
+def main():
+    logger.info("Iniciando aplicativo...")
 
-    time.sleep(wait_time)
+    time.sleep(time_high)
     youtube = authenticate_youtube(TOKEN_FILE)
+    
+    time.sleep(time_high)
+    init_db()
 
-    time.sleep(wait_time)
-    db = init_firestore()
+    time.sleep(time_high)
+    check_and_save(youtube)
 
-    time.sleep(wait_time)
-    check_and_save(db, youtube)
-
-    return db
+    time.sleep(time_high)
+    logger.info("Aplicação executada.")
 
     # time.sleep(time_high)
     # logger.info("Executando o agendador de tarefas em uma thread separada...")
-    # scheduler_thread = Thread(target=lambda: run_scheduler(db, youtube))
+    # scheduler_thread = Thread(target=lambda: run_scheduler(youtube))
     # scheduler_thread.start()
 
-def run_scheduler(db, youtube):
+def run_scheduler(youtube):
     last_run_date = None
 
     while True:
         current_date = datetime.now(TIMEZONE).date()
 
         if last_run_date != current_date:
-            check_and_save(db, youtube)
+            check_and_save(youtube)
             last_run_date = current_date
 
         # Calcula o tempo até a meia-noite do próximo dia
@@ -153,14 +168,17 @@ def run_scheduler(db, youtube):
         logger.info(f'Segundos para salvar novamente: {seconds_until_next_day}')
         time.sleep(seconds_until_next_day)
 
+# Rotas
 @app.route("/")
 def graph():
-    db = configure()
+    main()
     logger.info("Gerando gráfico para exibição...")
-
-    docs = db.collection("playlist_data").order_by("date").stream()
-    data = [(doc.id, doc.to_dict()["video_count"], doc.to_dict()["total_minutes"]) for doc in docs]
-
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT date, video_count, total_minutes FROM playlist_data ORDER BY date")
+    data = cursor.fetchall()
+    conn.close()
+    
     if data:
         dates, counts, durations = zip(*data)
 

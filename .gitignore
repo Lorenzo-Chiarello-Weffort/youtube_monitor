@@ -2,6 +2,7 @@
 client_secret.json
 token.json
 playlist_data.db
+firebase.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

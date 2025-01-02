@@ -133,27 +133,31 @@ def configure():
     # scheduler_thread = Thread(target=lambda: run_scheduler(db, youtube))
     # scheduler_thread.start()
 
-def run_scheduler(db, youtube):
-    last_run_date = None
+#def run_scheduler(db, youtube):
+#    last_run_date = None
 
-    while True:
-        current_date = datetime.now(TIMEZONE).date()
+#    while True:
+#        current_date = datetime.now(TIMEZONE).date()
 
-        if last_run_date != current_date:
-            check_and_save(db, youtube)
-            last_run_date = current_date
+#        if last_run_date != current_date:
+#            check_and_save(db, youtube)
+#            last_run_date = current_date
 
         # Calcula o tempo até a meia-noite do próximo dia
-        now = datetime.now(TIMEZONE)
-        next_day = datetime.combine(current_date + timedelta(days=1), datetime.min.time(), tzinfo=TIMEZONE)
-        seconds_until_next_day = (next_day - now).total_seconds()
+#        now = datetime.now(TIMEZONE)
+#        next_day = datetime.combine(current_date + timedelta(days=1), datetime.min.time(), tzinfo=TIMEZONE)
+#        seconds_until_next_day = (next_day - now).total_seconds()
 
-        logger.info(f'Segundos para salvar novamente: {seconds_until_next_day}')
-        time.sleep(seconds_until_next_day)
+#        logger.info(f'Segundos para salvar novamente: {seconds_until_next_day}')
+#        time.sleep(seconds_until_next_day)
 
 @app.route("/")
 def graph():
-    db = configure()
+    configure()
+
+@app.route("/graph")
+def graph():
+    db = init_firestore()
     logger.info("Gerando gráfico para exibição...")
 
     docs = db.collection("playlist_data").order_by("date").stream()

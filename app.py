@@ -11,30 +11,29 @@ from googleapiclient.discovery import build
 from flask import Flask, send_file, redirect, url_for
 import io
 import logging
+from threading import Thread
+import isodate
+import pytz
 
-# Caminho para o arquivo de autenticação OAuth2
+# Configurações iniciais
 CLIENT_SECRET_FILE = "client_secret.json"
 SCOPES = ["https://www.googleapis.com/auth/youtube.readonly"]
 
-# Arquivo do token
 TOKEN_FILE_HOST = "/etc/secrets/token.json"
 TOKEN_FILE_LOCAL = "token.json"
 
-# Banco de dados SQLite
 DB_FILE = "playlist_data.db"
 
-# Configurações iniciais
 PLAYLIST_ID = "PLEFWxoBc4reTSR7_7lEXQKKjDFZc6xmH8"
 
-# Tempo de espera
+TIMEZONE = pytz.timezone("America/Sao_Paulo")
+
 time_low = 0
 time_high = 0
 
-# Inicializar Flask
 INITIALIZED = False
 app = Flask(__name__)
 
-# Configurar o logger
 data_buffer = io.StringIO()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s', handlers=[
     logging.StreamHandler(data_buffer),
@@ -42,7 +41,6 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s', hand
 ])
 logger = logging.getLogger()
 
-# Checar se tem o arquivo client_secret
 def check_secret():
     logger.info("Checando Token...")
     time.sleep(time_low)
@@ -63,7 +61,6 @@ def check_secret():
     logger.info("Client Secret não encontrado")
     return "no_file_found"
 
-# Inicializar banco de dados
 def init_db():
     logger.info("Inicializando banco de dados SQLite...")
     time.sleep(time_low)
@@ -80,7 +77,6 @@ def init_db():
     conn.close()
     logger.info("Banco de dados inicializado.")
 
-# Salvar dados no banco
 def save_data(date, video_count, total_minutes):
     logger.info(f"Salvando dados: {date} - {video_count} vídeos - {total_minutes} minutos...")
     time.sleep(time_low)
@@ -91,11 +87,10 @@ def save_data(date, video_count, total_minutes):
     conn.close()
     logger.info("Dados salvos com sucesso.")
 
-# Checar e salvar dados
 def check_and_save(youtube):
     logger.info("Executando tarefa agendada para verificar e salvar dados...")
     time.sleep(time_low)
-    today = datetime.now().date().isoformat()
+    today = datetime.now(TIMEZONE).date().isoformat()
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM playlist_data WHERE date = ?", (today,))
@@ -107,7 +102,6 @@ def check_and_save(youtube):
         logger.info(f"Dados para {today} já existem no banco.")
     conn.close()
 
-# Autenticação e inicialização da API
 def authenticate_youtube(TOKEN_FILE):
     logger.info("Autenticando conta no YouTube API...")
     time.sleep(time_low)
@@ -125,7 +119,6 @@ def authenticate_youtube(TOKEN_FILE):
     logger.info("Autenticação concluída.")
     return build("youtube", "v3", credentials=credentials)
 
-# Obter a quantidade de vídeos e duração total da playlist
 def get_playlist_video_count_and_duration(youtube):
     logger.info(f"Obtendo dados da playlist '{PLAYLIST_ID}'...")
     request = youtube.playlistItems().list(
@@ -153,9 +146,7 @@ def get_playlist_video_count_and_duration(youtube):
     logger.info(f"Playlist contém {video_count} vídeos e {total_minutes} minutos no total.")
     return video_count, total_minutes
 
-# Converter duração do formato ISO 8601 para minutos
 def parse_duration_to_minutes(duration):
-    import isodate
     parsed_duration = isodate.parse_duration(duration)
     return int(parsed_duration.total_seconds() // 60)
 
@@ -183,7 +174,6 @@ def main():
     time.sleep(time_high)
     logger.info("Executando o agendador de tarefas em uma thread separada...")
     time.sleep(time_low)
-    from threading import Thread
     scheduler_thread = Thread(target=lambda: run_scheduler(youtube))
     scheduler_thread.start()
 
@@ -191,15 +181,15 @@ def run_scheduler(youtube):
     last_run_date = None
 
     while True:
-        current_date = datetime.now().date()
+        current_date = datetime.now(TIMEZONE).date()
 
         if last_run_date != current_date:
             check_and_save(youtube)
             last_run_date = current_date
 
         # Calcula o tempo até a meia-noite do próximo dia
-        now = datetime.now()
-        next_day = datetime.combine(current_date + timedelta(days=1), datetime.min.time())
+        now = datetime.now(TIMEZONE)
+        next_day = datetime.combine(current_date + timedelta(days=1), datetime.min.time(), tzinfo=TIMEZONE)
         seconds_until_next_day = (next_day - now).total_seconds()
 
         logger.info(f'Segundos para salvar novamente: {seconds_until_next_day}')
@@ -225,7 +215,7 @@ def graph():
     if data:
         dates, counts, durations = zip(*data)
 
-        fig = Figure(figsize=(15, 9))
+        fig = Figure(figsize=(15, 10))
         ax = fig.add_subplot(1, 1, 1)
         ax.plot(dates, counts, marker='o', label='Video Count')
         ax.plot(dates, durations, marker='o', label='Total Minutes')

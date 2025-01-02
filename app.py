@@ -27,7 +27,7 @@ TIMEZONE = pytz.timezone("America/Sao_Paulo")
 
 CREDENTIALS_PATH = "/etc/secrets/firebase.json"
 
-wait_time = 3
+wait_time = 5
 
 app = Flask(__name__)
 
@@ -154,8 +154,8 @@ def configure():
 
 @app.route("/")
 def root():
-    configure()
-    return "<h1>Dados carregados</h1>"
+    #configure()
+    return "<h1>Dados não carregados</h1>"
 
 @app.route("/graph")
 def graph():

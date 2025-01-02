@@ -126,7 +126,8 @@ def configure():
     time.sleep(wait_time)
     check_and_save(db, youtube)
 
-    return db
+    time.sleep(wait_time)
+    logger.info("Aplicação carregada")
 
     # time.sleep(time_high)
     # logger.info("Executando o agendador de tarefas em uma thread separada...")
@@ -154,6 +155,7 @@ def configure():
 @app.route("/")
 def graph():
     configure()
+    return "<h1>Dados carregados</h1>"
 
 @app.route("/graph")
 def graph():

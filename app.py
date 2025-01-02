@@ -192,11 +192,13 @@ def run_scheduler(youtube):
         next_day = datetime.combine(current_date + timedelta(days=1), datetime.min.time(), tzinfo=TIMEZONE)
         seconds_until_next_day = (next_day - now).total_seconds()
 
-        logger.info(f'Segundos para salvar novamente: {seconds_until_next_day}')
+        #logger.info(f'Segundos para salvar novamente: {seconds_until_next_day}')
         # time.sleep(seconds_until_next_day)
 
         # Teste de executar novamente antes de encerrar a atividade no render
-        time.sleep(1200) # 20 min
+        seconds = 120
+        logger.info(f'Segundos para salvar novamente: {seconds}')
+        time.sleep(seconds)
 
 # Rotas
 @app.route("/")

@@ -154,8 +154,12 @@ def configure():
 
 @app.route("/")
 def root():
-    #configure()
     return "<h1>Dados não carregados</h1>"
+
+@app.route("/init")
+def init():
+    configure()
+    return "<h1>Dados carregados</h1>"
 
 @app.route("/graph")
 def graph():

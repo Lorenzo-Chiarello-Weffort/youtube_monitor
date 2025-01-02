@@ -153,7 +153,7 @@ def configure():
 #        time.sleep(seconds_until_next_day)
 
 @app.route("/")
-def graph():
+def root():
     configure()
     return "<h1>Dados carregados</h1>"
 

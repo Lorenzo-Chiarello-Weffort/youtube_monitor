@@ -27,8 +27,6 @@ TIMEZONE = pytz.timezone("America/Sao_Paulo")
 
 CREDENTIALS_PATH = "/etc/secrets/firebase.json"
 
-firestore_client = firestore.Client.from_service_account_json(CREDENTIALS_PATH)
-
 wait_time = 3
 
 app = Flask(__name__)
@@ -43,7 +41,7 @@ logger = logging.getLogger()
 # Inicialização do Firestore
 def init_firestore():
     logger.info("Conectando ao Firestore...")
-    db = firestore.Client()
+    db = firestore.Client.from_service_account_json(CREDENTIALS_PATH)
     logger.info("Conexão ao Firestore estabelecida.")
     return db
 

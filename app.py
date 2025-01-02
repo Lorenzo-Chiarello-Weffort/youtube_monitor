@@ -171,6 +171,7 @@ def run_scheduler(youtube):
 # Rotas
 @app.route("/")
 def graph():
+    main()
     logger.info("Gerando gráfico para exibição...")
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -208,5 +209,4 @@ def logs():
     return f"<pre>{logs}</pre>"
 
 if __name__ == "__main__":
-    main()
     app.run()

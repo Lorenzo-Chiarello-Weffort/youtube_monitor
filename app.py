@@ -193,7 +193,10 @@ def run_scheduler(youtube):
         seconds_until_next_day = (next_day - now).total_seconds()
 
         logger.info(f'Segundos para salvar novamente: {seconds_until_next_day}')
-        time.sleep(seconds_until_next_day)
+        # time.sleep(seconds_until_next_day)
+
+        # Teste de executar novamente antes de encerrar a atividade no render
+        time.sleep(1200) # 20 min
 
 # Rotas
 @app.route("/")
@@ -215,7 +218,7 @@ def graph():
     if data:
         dates, counts, durations = zip(*data)
 
-        fig = Figure(figsize=(15, 10))
+        fig = Figure(figsize=(15, 12))
         ax = fig.add_subplot(1, 1, 1)
         ax.plot(dates, counts, marker='o', label='Video Count')
         ax.plot(dates, durations, marker='o', label='Total Minutes')

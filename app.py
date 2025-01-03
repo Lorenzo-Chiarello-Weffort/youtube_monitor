@@ -1,13 +1,13 @@
 import matplotlib
 matplotlib.use("Agg")
-from matplotlib.figure import Figure
+import matplotlib.pyplot as plt
 import os
 import time
 from datetime import datetime, timedelta
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
-from flask import Flask, send_file
+from flask import Flask, Response
 import io
 import logging
 from threading import Thread
@@ -114,7 +114,7 @@ def parse_duration_to_minutes(duration):
     parsed_duration = isodate.parse_duration(duration)
     return int(parsed_duration.total_seconds() // 60)
 
-def configure():
+def fetch_data():
     logger.info("Iniciando configuração do aplicativo...")
 
     time.sleep(wait_time)
@@ -158,65 +158,58 @@ def root():
 
 @app.route("/init")
 def init():
-    configure()
-    return "<h1>Dados carregados</h1>"
+    fetch_data()
+    return "<h1>Dados salvos</h1>"
 
 @app.route("/graph")
 def graph():
     try:
         db = init_firestore()
         logger.info("Buscando dados no Firestore...")
-        # Acessa a coleção
         collection_ref = db.collection("playlist_data")
         docs = collection_ref.stream()
 
-        # Processa os documentos
-        data = []
+        dates = []
+        video_counts = []
+        total_minutes = []
+
         for doc in docs:
-            data.append(f"{doc.id}: {doc.to_dict()}")
+            data = doc.to_dict()
+            dates.append(doc.id)
+            video_counts.append(data.get("video_count", 0))
+            total_minutes.append(data.get("total_minutes", 0))
 
-        # Formata para exibição em texto
-        if data:
-            response_text = "\n".join(data)
-        else:
-            response_text = "Nenhum dado encontrado na coleção 'playlist_data'."
+        if not dates:
+            return "Nenhum dado encontrado na coleção 'playlist_data'."
 
-        logger.info("Dados buscados com sucesso.")
-        return f"<pre>{response_text}</pre>"
+        # Ordena por data
+        sorted_data = sorted(zip(dates, video_counts, total_minutes), key=lambda x: x[0])
+        dates, video_counts, total_minutes = zip(*sorted_data)
+
+        # Gera o gráfico
+        plt.figure(figsize=(10, 6))
+        plt.plot(dates, video_counts, label="Video Count", marker='o', linestyle='-', color='b')
+        plt.plot(dates, total_minutes, label="Total Minutes", marker='s', linestyle='--', color='g')
+        plt.title("Vídeos/Minutos por dia", fontsize=14, weight='bold')
+        plt.xlabel("Datas", fontsize=12)
+        plt.ylabel("Valores", fontsize=12)
+        plt.xticks(rotation=45, fontsize=10)
+        plt.yticks(fontsize=10)
+        plt.legend(loc="upper left", fontsize=10)
+        plt.grid(alpha=0.3)
+        plt.tight_layout()
+
+        # Salva o gráfico como SVG
+        svg_buffer = io.BytesIO()
+        plt.savefig(svg_buffer, format="svg")
+        plt.close()
+        svg_buffer.seek(0)
+
+        return Response(svg_buffer.getvalue(), mimetype="image/svg+xml")
+
     except Exception as e:
-        logger.error(f"Erro ao acessar dados do Firestore: {e}")
-        return "Erro ao acessar dados do Firestore.", 500
-
-#@app.route("/graph")
-#def graph():
-#    db = init_firestore()
-#    logger.info("Gerando gráfico para exibição...")
-#
-#    docs = db.collection("playlist_data").order_by("date").stream()
-#    data = [(doc.id, doc.to_dict()["video_count"], doc.to_dict()["total_minutes"]) for doc in docs]
-
-#    if data:
-#        dates, counts, durations = zip(*data)
-
-#        fig = Figure(figsize=(15, 9))
-#        ax = fig.add_subplot(1, 1, 1)
-#        ax.plot(dates, counts, marker='o', label='Video Count')
-#        ax.plot(dates, durations, marker='o', label='Total Minutes')
-#        ax.set_title("YouTube Playlist Data Over Time")
-#        ax.set_xlabel("Date")
-#        ax.set_ylabel("Count / Minutes")
-#        ax.tick_params(axis='x', rotation=45)
-#        ax.legend()
-
-#        buf = io.BytesIO()
-#        fig.savefig(buf, format="png")
-#        buf.seek(0)
-
-#        logger.info("Gráfico gerado com sucesso.")
-#        return send_file(buf, mimetype="image/png")
-#    else:
-#        logger.info("Nenhum dado disponível para gerar gráfico.")
-#        return "<h1>Nenhum dado para mostrar</h1>"
+        logger.error(f"Erro ao acessar dados do Firestore ou gerar gráfico: {e}")
+        return "Erro ao acessar dados ou gerar gráfico.", 500
 
 @app.route("/logs")
 def logs():

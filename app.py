@@ -163,34 +163,60 @@ def init():
 
 @app.route("/graph")
 def graph():
-    db = init_firestore()
-    logger.info("Gerando gráfico para exibição...")
+    try:
+        db = init_firestore()
+        logger.info("Buscando dados no Firestore...")
+        # Acessa a coleção
+        collection_ref = db.collection("playlist_data")
+        docs = collection_ref.stream()
 
-    docs = db.collection("playlist_data").order_by("date").stream()
-    data = [(doc.id, doc.to_dict()["video_count"], doc.to_dict()["total_minutes"]) for doc in docs]
+        # Processa os documentos
+        data = []
+        for doc in docs:
+            data.append(f"{doc.id}: {doc.to_dict()}")
 
-    if data:
-        dates, counts, durations = zip(*data)
+        # Formata para exibição em texto
+        if data:
+            response_text = "\n".join(data)
+        else:
+            response_text = "Nenhum dado encontrado na coleção 'playlist_data'."
 
-        fig = Figure(figsize=(15, 9))
-        ax = fig.add_subplot(1, 1, 1)
-        ax.plot(dates, counts, marker='o', label='Video Count')
-        ax.plot(dates, durations, marker='o', label='Total Minutes')
-        ax.set_title("YouTube Playlist Data Over Time")
-        ax.set_xlabel("Date")
-        ax.set_ylabel("Count / Minutes")
-        ax.tick_params(axis='x', rotation=45)
-        ax.legend()
+        logger.info("Dados buscados com sucesso.")
+        return f"<pre>{response_text}</pre>"
+    except Exception as e:
+        logger.error(f"Erro ao acessar dados do Firestore: {e}")
+        return "Erro ao acessar dados do Firestore.", 500
 
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png")
-        buf.seek(0)
+#@app.route("/graph")
+#def graph():
+#    db = init_firestore()
+#    logger.info("Gerando gráfico para exibição...")
+#
+#    docs = db.collection("playlist_data").order_by("date").stream()
+#    data = [(doc.id, doc.to_dict()["video_count"], doc.to_dict()["total_minutes"]) for doc in docs]
 
-        logger.info("Gráfico gerado com sucesso.")
-        return send_file(buf, mimetype="image/png")
-    else:
-        logger.info("Nenhum dado disponível para gerar gráfico.")
-        return "<h1>Nenhum dado para mostrar</h1>"
+#    if data:
+#        dates, counts, durations = zip(*data)
+
+#        fig = Figure(figsize=(15, 9))
+#        ax = fig.add_subplot(1, 1, 1)
+#        ax.plot(dates, counts, marker='o', label='Video Count')
+#        ax.plot(dates, durations, marker='o', label='Total Minutes')
+#        ax.set_title("YouTube Playlist Data Over Time")
+#        ax.set_xlabel("Date")
+#        ax.set_ylabel("Count / Minutes")
+#        ax.tick_params(axis='x', rotation=45)
+#        ax.legend()
+
+#        buf = io.BytesIO()
+#        fig.savefig(buf, format="png")
+#        buf.seek(0)
+
+#        logger.info("Gráfico gerado com sucesso.")
+#        return send_file(buf, mimetype="image/png")
+#    else:
+#        logger.info("Nenhum dado disponível para gerar gráfico.")
+#        return "<h1>Nenhum dado para mostrar</h1>"
 
 @app.route("/logs")
 def logs():
